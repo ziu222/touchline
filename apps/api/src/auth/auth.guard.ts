@@ -31,11 +31,11 @@ export class AuthGuard implements CanActivate {
     // move to a Redis cache with ~30 s TTL if this read ever shows up in latency.
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, userRole: true, isActive: true },
+      select: { id: true, userRole: true, isActive: true, clubId: true },
     });
     if (!user?.isActive) throw unauthenticated('Invalid or expired token');
 
-    req.user = { id: user.id, role: user.userRole };
+    req.user = { id: user.id, role: user.userRole, clubId: user.clubId };
     if (!roles.includes(user.userRole)) throw new AppError(403, 'FORBIDDEN', 'Not allowed for this role');
     return true;
   }

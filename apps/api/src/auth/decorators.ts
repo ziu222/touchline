@@ -8,5 +8,5 @@ export const Public = () => SetMetadata(PUBLIC_KEY, true);
 export const Roles = (...roles: UserRole[]) => SetMetadata(ROLES_KEY, roles);
 export const AnyRole = () => Roles(...userRoles);
 
-export type AuthUser = { id: string; role: UserRole };
-export type AuthedRequest = { headers: Record<string, string | undefined>; user?: AuthUser };
+export type AuthUser = { id: string; role: UserRole; clubId: string };
+export type AuthedRequest = { headers: Record<string, string | undefined>; ip?: string; user?: AuthUser };
