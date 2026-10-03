@@ -259,13 +259,19 @@ async function main() {
 
     const embedded = rows
       .filter((r) => r.per90)
-      .map((r) => ({ id: r.id, embedding: vectorLiteral(embedding(zScores(r.per90!, stats.get(r.group)!))) }));
+      .map((r) => {
+        const z = zScores(r.per90!, stats.get(r.group)!);
+        return { id: r.id, embedding: vectorLiteral(embedding(z)), z_scores: z };
+      });
     log(`writing ${embedded.length} embeddings (${MODEL_VERSION})`);
+    // older model versions of the same season are replaced, so the API never mixes vector spaces
+    await db.query(`DELETE FROM core.player_embeddings WHERE season = $1 AND model_version <> $2`, [SEASON, MODEL_VERSION]);
     await insertJson(
       db,
-      `INSERT INTO core.player_embeddings (player_id, season, model_version, embedding)
-       SELECT x.id, '${SEASON}', '${MODEL_VERSION}', x.embedding::vector FROM json_to_recordset($1::json) AS x(id uuid, embedding text)
-       ON CONFLICT (player_id, season, model_version) DO UPDATE SET embedding = EXCLUDED.embedding`,
+      `INSERT INTO core.player_embeddings (player_id, season, model_version, embedding, z_scores)
+       SELECT x.id, '${SEASON}', '${MODEL_VERSION}', x.embedding::vector, x.z_scores
+       FROM json_to_recordset($1::json) AS x(id uuid, embedding text, z_scores jsonb)
+       ON CONFLICT (player_id, season, model_version) DO UPDATE SET embedding = EXCLUDED.embedding, z_scores = EXCLUDED.z_scores`,
       embedded,
     );
 

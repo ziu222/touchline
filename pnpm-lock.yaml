@@ -71,6 +71,9 @@ importers:
 
   tools/seed:
     dependencies:
+      '@touchline/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       pg:
         specifier: ^8.23.1
         version: 8.23.1

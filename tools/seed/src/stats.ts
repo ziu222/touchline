@@ -4,7 +4,7 @@
 export const SEASON = '2017/18';
 export const MIN_MINUTES = 700;
 export const EMBEDDING_DIM = 32;
-export const MODEL_VERSION = 'z21-2017-18-v1';
+export const MODEL_VERSION = 'z22-2017-18-v1';
 
 export type PositionGroup = 'gk' | 'def' | 'mid' | 'fwd';
 export const groupByRole: Record<string, PositionGroup> = {
@@ -123,7 +123,7 @@ export function zScores(p: Per90, stats: GroupStats): Per90 {
 }
 
 // z-scores within the position group, zero-padded to vector(32), L2-normalised for cosine search.
-// PCA skipped: 21 features is already small and z-scores stay explainable (shared_strengths).
+// PCA skipped: 22 features is already small and z-scores stay explainable (shared_strengths).
 export function embedding(z: Per90): number[] {
   const v = FEATURES.map((f) => z[f]);
   while (v.length < EMBEDDING_DIM) v.push(0);
