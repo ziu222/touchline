@@ -180,6 +180,108 @@ export type SimilarResponse = {
   meta: { model_version: string; season: string; mode: 'exact' };
 };
 
+// ───────── recruitment ─────────
+
+export const shortlistStages = ['identified', 'screened', 'scouted', 'committee', 'medical', 'approved', 'rejected'] as const;
+export type ShortlistStage = (typeof shortlistStages)[number];
+
+const IsoDate = z.iso.date();
+const Uuid = z.uuid();
+
+const needFields = {
+  role_id: Uuid,
+  age_min: Age,
+  age_max: Age,
+  // money as a string keeps decimals exact; numbers are accepted too
+  fee_budget: z.union([z.number().nonnegative().multipleOf(0.01), z.string().regex(/^\d+(\.\d{1,2})?$/)]).transform(String),
+  deadline: IsoDate,
+  shared_with_coach: z.boolean().default(false),
+};
+
+const ageOrder = (v: { age_min?: number; age_max?: number }) =>
+  v.age_min === undefined || v.age_max === undefined || v.age_min <= v.age_max;
+
+export const CreateNeedRequest = z.object(needFields).refine(ageOrder, 'age_min must be <= age_max');
+export type CreateNeedRequest = z.infer<typeof CreateNeedRequest>;
+
+export const UpdateNeedRequest = z
+  .object({
+    ...needFields,
+    shared_with_coach: z.boolean(),
+    status: z.enum(['open', 'closed']),
+  })
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, 'Nothing to update')
+  .refine(ageOrder, 'age_min must be <= age_max');
+export type UpdateNeedRequest = z.infer<typeof UpdateNeedRequest>;
+
+export const NeedQuery = Pagination.extend({ status: z.enum(['open', 'closed']).optional() });
+export type NeedQuery = z.infer<typeof NeedQuery>;
+
+export type NeedDto = {
+  id: string;
+  role: { id: string; name: string; position_group: string };
+  age_min: number;
+  age_max: number;
+  fee_budget: string;
+  deadline: string;
+  status: 'open' | 'closed';
+  shared_with_coach: boolean;
+  created_by: string;
+  created_at: string;
+};
+
+export const AddToShortlistRequest = z.object({ player_id: Uuid });
+export type AddToShortlistRequest = z.infer<typeof AddToShortlistRequest>;
+
+export const ShortlistQuery = z.object({ stage: z.enum(shortlistStages).optional() });
+export type ShortlistQuery = z.infer<typeof ShortlistQuery>;
+
+export const TransitionRequest = z.object({
+  to: z.enum(shortlistStages),
+  reason: z.string().trim().max(2000).optional(),
+  // required with a "conditional" clearance when moving medical -> approved
+  acknowledge_conditions: z.boolean().default(false),
+});
+export type TransitionRequest = z.infer<typeof TransitionRequest>;
+
+export type ShortlistEntryDto = {
+  id: string;
+  need_id: string;
+  player: { id: string; full_name: string; position: string | null; current_team: string | null };
+  stage: ShortlistStage;
+  pending_acceptance: boolean;
+  proposed_by: string | null;
+  owner_id: string | null;
+  decision_reason: string | null;
+  updated_at: string;
+};
+
+export type StageHistoryDto = {
+  id: string;
+  from_stage: ShortlistStage | null;
+  to_stage: ShortlistStage;
+  actor_id: string;
+  reason: string | null;
+  at: string;
+};
+
+export const ClearanceRequest = z.object({
+  result: z.enum(['cleared', 'conditional', 'rejected']),
+  // only doctors can ever read it back (RLS); SD and HoR see result and doctor
+  note: z.string().trim().max(2000).optional(),
+});
+export type ClearanceRequest = z.infer<typeof ClearanceRequest>;
+
+export type ClearanceDto = {
+  id: string;
+  entry_id: string;
+  result: 'cleared' | 'conditional' | 'rejected';
+  doctor_id: string;
+  at: string;
+  entry_stage: ShortlistStage;
+};
+
 export type ApiError = {
   error: { code: string; message: string; details?: unknown };
 };
