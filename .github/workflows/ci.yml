@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: touchline
+          POSTGRES_PASSWORD: touchline
+          POSTGRES_DB: touchline
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U touchline"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+
+    env:
+      DATABASE_URL: postgresql://touchline_app:touchline_app@127.0.0.1:5432/touchline
+      MIGRATION_DATABASE_URL: postgresql://touchline:touchline@127.0.0.1:5432/touchline
+      REDIS_URL: redis://127.0.0.1:6379
+      JWT_ACCESS_SECRET: ci-only-access-secret-0123456789abcdef
+      MEDICAL_ENC_KEY: ci-only-medical-key
+      PGPASSWORD: touchline
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 25
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --audit-level high
+
+      - name: Create runtime DB role
+        run: psql -h 127.0.0.1 -U touchline -d touchline -f docker/initdb/01-app-role.sql
+
+      - run: pnpm --filter @touchline/api db:generate
+      - run: pnpm --filter @touchline/api db:migrate
+
+      # RLS is silently skipped for owners, superusers and BYPASSRLS roles (docs/system-design.md §6)
+      - name: Runtime role cannot bypass RLS
+        run: |
+          test "$(psql -h 127.0.0.1 -U touchline -d touchline -tAc \
+            "SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = 'touchline_app'")" = "f"
+          test "$(psql -h 127.0.0.1 -U touchline -d touchline -tAc \
+            "SELECT count(*) FROM pg_tables WHERE schemaname IN ('core','recruitment','medical','audit') AND tableowner = 'touchline_app'")" = "0"
+
+      - run: pnpm build
+      - run: pnpm test
