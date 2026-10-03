@@ -7,7 +7,7 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json && node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsc -p tsconfig.json && node --test \"dist/**/*.test.js\"",
+    "test": "node scripts/test.mjs",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy"
   },
@@ -26,6 +26,8 @@
   },
   "devDependencies": {
     "@types/node": "^26.6.4",
+    "@types/pg": "^8.23.1",
+    "pg": "^8.23.1",
     "prisma": "7.10.0",
     "typescript": "^7.0.2"
   }

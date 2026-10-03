@@ -97,16 +97,39 @@ export async function startTestApp(env: Record<string, string> = {}) {
     return id;
   }
 
-  async function close() {
-    // audit_log is append-only by design, so its test rows stay
-    await prisma.shortlistEntry.deleteMany({ where: { clubId } });
-    await prisma.recruitmentNeed.deleteMany({ where: { clubId } });
-    await prisma.scoutAssignment.deleteMany({ where: { player: { clubId } } });
-    await prisma.player.deleteMany({ where: { clubId } });
-    await prisma.user.deleteMany({ where: { clubId } });
-    await prisma.club.delete({ where: { id: clubId } });
-    await app.close();
+  // A role for needs to point at (player_roles is shared, seeded data in dev).
+  async function playerRole(name = 'Forward', positionGroup = 'fwd') {
+    return prisma.playerRole.upsert({ where: { name }, update: {}, create: { name, positionGroup } });
   }
 
-  return { app, prisma, clubId, run, request, createUser, loginAs, createPlayer, close };
+  // A submitted scout report: the precondition for scouted -> committee.
+  async function submitReport(playerId: string, authorId: string) {
+    const role = await playerRole();
+    const rubric = await prisma.rubric.upsert({
+      where: { roleId_version: { roleId: role.id, version: 1 } },
+      update: {},
+      create: { roleId: role.id, version: 1, anchors: {} },
+    });
+    return prisma.scoutReport.create({
+      data: {
+        clubId,
+        playerId,
+        authorId,
+        mode: 'video',
+        minutesWatched: 90,
+        rubricId: rubric.id,
+        rubricVersion: 1,
+        currentGrade: 'B',
+        potentialGrade: 'A',
+        actionRec: 'sign',
+        submittedAt: new Date(),
+      },
+    });
+  }
+
+  // scripts/test.mjs gives every run a fresh database, so there is nothing to clean up
+  // (stage_history and audit_log are append-only and could not be deleted anyway).
+  const close = () => app.close();
+
+  return { app, prisma, clubId, run, request, createUser, loginAs, createPlayer, playerRole, submitReport, close };
 }

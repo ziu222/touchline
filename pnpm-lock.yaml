@@ -52,6 +52,12 @@ importers:
       '@types/node':
         specifier: ^26.6.4
         version: 26.6.4
+      '@types/pg':
+        specifier: ^8.23.1
+        version: 8.23.1
+      pg:
+        specifier: ^8.23.1
+        version: 8.23.1
       prisma:
         specifier: 7.10.0
         version: 7.10.0(@types/node@26.6.4)(@types/react@19.3.0)(magicast@0.5.5)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(typescript@7.0.2)
