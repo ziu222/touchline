@@ -10,6 +10,7 @@
     "test": "tsc -p tsconfig.json && node --test \"dist/**/*.test.js\""
   },
   "dependencies": {
+    "@touchline/shared": "workspace:*",
     "pg": "^8.23.1"
   },
   "devDependencies": {

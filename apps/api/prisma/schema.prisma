@@ -2,7 +2,7 @@
 // (prisma/migrations/*_security_and_indexes), which Prisma cannot express.
 
 generator client {
-  provider = "prisma-client"
+  provider            = "prisma-client"
   output              = "../src/generated/prisma"
   moduleFormat        = "esm"
   importFileExtension = "js"
@@ -284,6 +284,8 @@ model PlayerEmbedding {
   season       String
   modelVersion String                    @map("model_version")
   embedding    Unsupported("vector(32)")
+  // per-feature z-scores within the position group; explains a match (shared_strengths)
+  zScores      Json?                     @map("z_scores")
   createdAt    DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
@@ -533,7 +535,7 @@ model AvailabilityStatus {
   updatedBy      String       @map("updated_by") @db.Uuid
   updatedAt      DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  player  Player @relation(fields: [playerId], references: [id])
+  player  Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
   updater User   @relation(fields: [updatedBy], references: [id])
 
   @@map("availability_status")

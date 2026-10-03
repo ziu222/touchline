@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { countEvents, embedding, EMBEDDING_DIM, minutesPlayed, per90, zScores, groupStats, type WyEvent } from './stats.js';
+import { per90Features } from '@touchline/shared';
+import { countEvents, embedding, EMBEDDING_DIM, FEATURES, minutesPlayed, per90, zScores, groupStats, type WyEvent } from './stats.js';
+
+test('feature order matches @touchline/shared (the API reads embeddings in that order)', () => {
+  assert.deepEqual([...FEATURES], [...per90Features]);
+});
 
 test('minutes: starter subbed off at 60, sub on at 60, full 90', () => {
   const played = minutesPlayed([
