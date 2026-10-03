@@ -5,6 +5,7 @@
   "scripts": {
     "build": "pnpm -r build",
     "dev:api": "pnpm --filter @touchline/api dev",
+    "seed": "pnpm --filter @touchline/seed seed",
     "typecheck": "pnpm -r typecheck"
   }
 }
