@@ -5,8 +5,10 @@ services:
       POSTGRES_USER: touchline
       POSTGRES_PASSWORD: touchline
       POSTGRES_DB: touchline
-    ports: ["5432:5432"]
-    volumes: [pgdata:/var/lib/postgresql/data]
+    ports: ["54329:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
   redis:
     image: redis:7
     ports: ["6379:6379"]
