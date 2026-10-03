@@ -3,3 +3,19 @@ dist/
 .env
 data/raw/
 *.log
+
+# local tooling (never commit)
+.claude/
+.agent/
+.agents/
+.cursor/
+.windsurf/
+.mcp.json
+.mcp/
+CLAUDE.md
+AGENTS.md
+GEMINI.md
+*.local.*
+.vscode/
+.idea/
+.DS_Store
