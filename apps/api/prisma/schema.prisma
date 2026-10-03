@@ -1,0 +1,573 @@
+// Source of truth for tables/columns. RLS, triggers, HNSW and grants live in raw SQL migrations
+// (prisma/migrations/*_security_and_indexes), which Prisma cannot express.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas  = ["core", "recruitment", "medical", "audit"]
+}
+
+// ───────────── enums ─────────────
+
+enum UserRole {
+  sporting_director
+  head_recruitment
+  scout
+  analyst
+  doctor
+  head_coach
+  admin
+
+  @@map("user_role")
+  @@schema("core")
+}
+
+enum NeedStatus {
+  open
+  closed
+
+  @@map("need_status")
+  @@schema("recruitment")
+}
+
+enum ShortlistStage {
+  identified
+  screened
+  scouted
+  committee
+  medical
+  approved
+  rejected
+
+  @@map("shortlist_stage")
+  @@schema("recruitment")
+}
+
+enum ReportMode {
+  live
+  video
+
+  @@map("report_mode")
+  @@schema("recruitment")
+}
+
+enum Grade {
+  A
+  B
+  C
+  D
+
+  @@map("grade")
+  @@schema("recruitment")
+}
+
+enum ActionRec {
+  sign
+  monitor
+  reject
+
+  @@map("action_rec")
+  @@schema("recruitment")
+}
+
+enum Vote {
+  agree
+  disagree
+  abstain
+
+  @@map("vote")
+  @@schema("recruitment")
+}
+
+enum InjuryActivity {
+  match
+  training
+
+  @@map("injury_activity")
+  @@schema("medical")
+}
+
+enum SeverityClass {
+  d1_3  @map("1-3")
+  d4_7  @map("4-7")
+  d8_28 @map("8-28")
+  d28p  @map("28+")
+
+  @@map("severity_class")
+  @@schema("medical")
+}
+
+enum Availability {
+  fit
+  modified
+  out
+
+  @@map("availability")
+  @@schema("medical")
+}
+
+enum ClearanceResult {
+  cleared
+  conditional
+  rejected
+
+  @@map("clearance_result")
+  @@schema("medical")
+}
+
+enum AuditAction {
+  read
+  create
+  update
+  delete
+
+  @@map("audit_action")
+  @@schema("audit")
+}
+
+// ───────────── core ─────────────
+
+model Club {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  users    User[]
+  players  Player[]
+  needs    RecruitmentNeed[]
+  entries  ShortlistEntry[]
+  reports  ScoutReport[]
+  comments Comment[]
+  injuries Injury[]
+
+  @@map("clubs")
+  @@schema("core")
+}
+
+// unique (lower(email)) is a raw index in the security migration
+model User {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clubId       String    @map("club_id") @db.Uuid
+  email        String
+  passwordHash String    @map("password_hash")
+  userRole     UserRole  @map("user_role")
+  isActive     Boolean   @default(true) @map("is_active")
+  failedLogins Int       @default(0) @map("failed_logins")
+  lockedUntil  DateTime? @map("locked_until") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  club                Club                 @relation(fields: [clubId], references: [id])
+  refreshTokens       RefreshToken[]
+  needsCreated        RecruitmentNeed[]    @relation("NeedCreatedBy")
+  entriesOwned        ShortlistEntry[]     @relation("EntryOwner")
+  entriesProposed     ShortlistEntry[]     @relation("EntryProposedBy")
+  history             StageHistory[]
+  assignments         ScoutAssignment[]
+  reports             ScoutReport[]
+  comments            Comment[]
+  votes               CommitteeVote[]
+  notes               MedicalNote[]
+  clearances          MedicalClearance[]
+  availabilityUpdates AvailabilityStatus[]
+
+  @@map("users")
+  @@schema("core")
+}
+
+model RefreshToken {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @map("token_hash")
+  familyId  String    @map("family_id") @db.Uuid
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([familyId])
+  @@index([userId])
+  @@map("refresh_tokens")
+  @@schema("core")
+}
+
+model PlayerRole {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name          String   @unique
+  positionGroup String   @map("position_group")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  needs   RecruitmentNeed[]
+  rubrics Rubric[]
+
+  @@map("player_roles")
+  @@schema("core")
+}
+
+// trigram index on lower(full_name) is a raw index in the security migration
+model Player {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clubId               String    @map("club_id") @db.Uuid
+  fullName             String    @map("full_name")
+  dob                  DateTime? @db.Date
+  foot                 String?
+  heightCm             Int?      @map("height_cm")
+  nationality          String?
+  currentTeam          String?   @map("current_team")
+  primaryPosition      String?   @map("primary_position")
+  primaryPositionGroup String?   @map("primary_position_group")
+  isSynthetic          Boolean   @default(false) @map("is_synthetic")
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  club         Club                @relation(fields: [clubId], references: [id])
+  externalIds  PlayerExternalId[]
+  seasonStats  PlayerSeasonStat[]
+  embeddings   PlayerEmbedding[]
+  entries      ShortlistEntry[]
+  assignments  ScoutAssignment[]
+  reports      ScoutReport[]
+  injuries     Injury[]
+  availability AvailabilityStatus?
+
+  @@index([primaryPositionGroup])
+  @@map("players")
+  @@schema("core")
+}
+
+model PlayerExternalId {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  playerId   String   @map("player_id") @db.Uuid
+  source     String
+  sourceId   String   @map("source_id")
+  confidence Float    @default(1)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([source, sourceId])
+  @@index([playerId])
+  @@map("player_external_ids")
+  @@schema("core")
+}
+
+// GIN index on per90 is a raw index in the security migration
+model PlayerSeasonStat {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  playerId  String   @map("player_id") @db.Uuid
+  season    String
+  minutes   Int
+  metrics   Json
+  per90     Json?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([playerId, season])
+  @@map("player_season_stats")
+  @@schema("core")
+}
+
+// HNSW index on embedding is a raw index in the security migration; seed writes via SQL
+model PlayerEmbedding {
+  id           String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  playerId     String                    @map("player_id") @db.Uuid
+  season       String
+  modelVersion String                    @map("model_version")
+  embedding    Unsupported("vector(32)")
+  createdAt    DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([playerId, season, modelVersion])
+  @@map("player_embeddings")
+  @@schema("core")
+}
+
+// ───────────── recruitment ─────────────
+
+model RecruitmentNeed {
+  id              String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clubId          String     @map("club_id") @db.Uuid
+  roleId          String     @map("role_id") @db.Uuid
+  ageMin          Int        @map("age_min")
+  ageMax          Int        @map("age_max")
+  feeBudget       Decimal    @map("fee_budget") @db.Decimal(14, 2)
+  deadline        DateTime   @db.Date
+  status          NeedStatus @default(open)
+  sharedWithCoach Boolean    @default(false) @map("shared_with_coach")
+  createdBy       String     @map("created_by") @db.Uuid
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  club    Club             @relation(fields: [clubId], references: [id])
+  role    PlayerRole       @relation(fields: [roleId], references: [id])
+  creator User             @relation("NeedCreatedBy", fields: [createdBy], references: [id])
+  entries ShortlistEntry[]
+
+  @@index([status])
+  @@map("recruitment_needs")
+  @@schema("recruitment")
+}
+
+model ShortlistEntry {
+  id                String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clubId            String         @map("club_id") @db.Uuid
+  needId            String         @map("need_id") @db.Uuid
+  playerId          String         @map("player_id") @db.Uuid
+  stage             ShortlistStage @default(identified)
+  ownerId           String?        @map("owner_id") @db.Uuid
+  proposedBy        String?        @map("proposed_by") @db.Uuid
+  pendingAcceptance Boolean        @default(false) @map("pending_acceptance")
+  decisionReason    String?        @map("decision_reason")
+  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  club       Club               @relation(fields: [clubId], references: [id])
+  need       RecruitmentNeed    @relation(fields: [needId], references: [id])
+  player     Player             @relation(fields: [playerId], references: [id])
+  owner      User?              @relation("EntryOwner", fields: [ownerId], references: [id])
+  proposer   User?              @relation("EntryProposedBy", fields: [proposedBy], references: [id])
+  history    StageHistory[]
+  votes      CommitteeVote[]
+  clearances MedicalClearance[]
+
+  @@unique([needId, playerId])
+  @@index([stage])
+  @@map("shortlist_entries")
+  @@schema("recruitment")
+}
+
+// append-only: enforced by trigger in the security migration
+model StageHistory {
+  id        String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entryId   String          @map("entry_id") @db.Uuid
+  fromStage ShortlistStage? @map("from_stage")
+  toStage   ShortlistStage  @map("to_stage")
+  actorId   String          @map("actor_id") @db.Uuid
+  reason    String?
+  at        DateTime        @default(now()) @db.Timestamptz(6)
+
+  entry ShortlistEntry @relation(fields: [entryId], references: [id])
+  actor User           @relation(fields: [actorId], references: [id])
+
+  @@index([entryId, at])
+  @@map("stage_history")
+  @@schema("recruitment")
+}
+
+model ScoutAssignment {
+  scoutId   String    @map("scout_id") @db.Uuid
+  playerId  String    @map("player_id") @db.Uuid
+  dueDate   DateTime? @map("due_date") @db.Date
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  scout  User   @relation(fields: [scoutId], references: [id])
+  player Player @relation(fields: [playerId], references: [id])
+
+  @@id([scoutId, playerId])
+  @@map("scout_assignments")
+  @@schema("recruitment")
+}
+
+model Rubric {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  roleId    String   @map("role_id") @db.Uuid
+  version   Int
+  scaleType String   @default("A-D") @map("scale_type")
+  anchors   Json
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  role    PlayerRole    @relation(fields: [roleId], references: [id])
+  reports ScoutReport[]
+
+  @@unique([roleId, version])
+  @@map("rubrics")
+  @@schema("recruitment")
+}
+
+// CHECK (minutes_watched > 0) is in the security migration
+model ScoutReport {
+  id             String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clubId         String     @map("club_id") @db.Uuid
+  playerId       String     @map("player_id") @db.Uuid
+  authorId       String     @map("author_id") @db.Uuid
+  clientId       String?    @map("client_id") @db.Uuid
+  matchRef       String?    @map("match_ref")
+  mode           ReportMode
+  minutesWatched Int        @map("minutes_watched")
+  rubricId       String     @map("rubric_id") @db.Uuid
+  rubricVersion  Int        @map("rubric_version")
+  currentGrade   Grade      @map("current_grade")
+  potentialGrade Grade      @map("potential_grade")
+  actionRec      ActionRec  @map("action_rec")
+  body           String?
+  submittedAt    DateTime?  @map("submitted_at") @db.Timestamptz(6)
+  lockedAt       DateTime?  @map("locked_at") @db.Timestamptz(6)
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  club   Club                   @relation(fields: [clubId], references: [id])
+  player Player                 @relation(fields: [playerId], references: [id])
+  author User                   @relation(fields: [authorId], references: [id])
+  rubric Rubric                 @relation(fields: [rubricId], references: [id])
+  scores ReportAttributeScore[]
+
+  // idempotent resend from mobile: same author + client_id returns the same report
+  @@unique([authorId, clientId])
+  @@index([playerId])
+  @@index([authorId])
+  @@map("scout_reports")
+  @@schema("recruitment")
+}
+
+model ReportAttributeScore {
+  reportId  String  @map("report_id") @db.Uuid
+  attribute String
+  score     Int
+  note      String?
+
+  report ScoutReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@id([reportId, attribute])
+  @@map("report_attribute_scores")
+  @@schema("recruitment")
+}
+
+model Comment {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clubId     String   @map("club_id") @db.Uuid
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id") @db.Uuid
+  authorId   String   @map("author_id") @db.Uuid
+  body       String
+  mentions   String[] @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  club   Club @relation(fields: [clubId], references: [id])
+  author User @relation(fields: [authorId], references: [id])
+
+  @@index([entityType, entityId])
+  @@map("comments")
+  @@schema("recruitment")
+}
+
+// P1: head coach votes, not binding for stage changes in MVP
+model CommitteeVote {
+  entryId String   @map("entry_id") @db.Uuid
+  voterId String   @map("voter_id") @db.Uuid
+  vote    Vote
+  note    String?
+  at      DateTime @default(now()) @db.Timestamptz(6)
+
+  entry ShortlistEntry @relation(fields: [entryId], references: [id])
+  voter User           @relation(fields: [voterId], references: [id])
+
+  @@id([entryId, voterId])
+  @@map("committee_votes")
+  @@schema("recruitment")
+}
+
+// ───────────── medical (RLS in the security migration) ─────────────
+
+model Injury {
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clubId         String         @map("club_id") @db.Uuid
+  playerId       String         @map("player_id") @db.Uuid
+  injuredOn      DateTime       @map("injured_on") @db.Date
+  activity       InjuryActivity
+  bodyRegion     String         @map("body_region")
+  side           String?
+  osiicsCode     String?        @map("osiics_code")
+  severityDays   Int            @map("severity_days")
+  severityClass  SeverityClass  @map("severity_class")
+  recurrenceOf   String?        @map("recurrence_of") @db.Uuid
+  expectedReturn DateTime?      @map("expected_return") @db.Date
+  actualReturn   DateTime?      @map("actual_return") @db.Date
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  club        Club          @relation(fields: [clubId], references: [id])
+  player      Player        @relation(fields: [playerId], references: [id])
+  recurrence  Injury?       @relation("Recurrence", fields: [recurrenceOf], references: [id])
+  recurrences Injury[]      @relation("Recurrence")
+  notes       MedicalNote[]
+
+  @@index([playerId])
+  @@map("injuries")
+  @@schema("medical")
+}
+
+// soap holds the AES-256-GCM envelope {iv, tag, ct}, never plaintext
+model MedicalNote {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  injuryId  String   @map("injury_id") @db.Uuid
+  authorId  String   @map("author_id") @db.Uuid
+  soap      Json
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  injury Injury @relation(fields: [injuryId], references: [id])
+  author User   @relation(fields: [authorId], references: [id])
+
+  @@map("medical_notes")
+  @@schema("medical")
+}
+
+// one row per player; the only medical table other roles may read
+model AvailabilityStatus {
+  playerId       String       @id @map("player_id") @db.Uuid
+  status         Availability
+  publicNote     String?      @map("public_note")
+  expectedReturn DateTime?    @map("expected_return") @db.Date
+  updatedBy      String       @map("updated_by") @db.Uuid
+  updatedAt      DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  player  Player @relation(fields: [playerId], references: [id])
+  updater User   @relation(fields: [updatedBy], references: [id])
+
+  @@map("availability_status")
+  @@schema("medical")
+}
+
+// valid clearance = latest row, inside TTL, no newer injury (recruitment.has_valid_clearance)
+model MedicalClearance {
+  id       String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entryId  String          @map("entry_id") @db.Uuid
+  doctorId String          @map("doctor_id") @db.Uuid
+  result   ClearanceResult
+  note     String?
+  at       DateTime        @default(now()) @db.Timestamptz(6)
+
+  entry  ShortlistEntry @relation(fields: [entryId], references: [id])
+  doctor User           @relation(fields: [doctorId], references: [id])
+
+  @@index([entryId, at(sort: Desc)])
+  @@map("medical_clearances")
+  @@schema("medical")
+}
+
+// ───────────── audit (append-only) ─────────────
+
+model AuditLog {
+  id       String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actorId  String      @map("actor_id") @db.Uuid
+  action   AuditAction
+  entity   String
+  entityId String?     @map("entity_id") @db.Uuid
+  ip       String?
+  at       DateTime    @default(now()) @db.Timestamptz(6)
+
+  @@index([actorId, at])
+  @@index([entity, entityId])
+  @@map("audit_log")
+  @@schema("audit")
+}
