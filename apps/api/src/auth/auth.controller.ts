@@ -1,6 +1,8 @@
 import { Body, Controller, HttpCode, Post, Req } from '@nestjs/common';
 import { LoginRequest, RefreshRequest, type AuthTokens } from '@touchline/shared';
+import { Throttle } from '@nestjs/throttler';
 import { parse } from '../errors.js';
+import { LOGIN_THROTTLE } from '../rate-limit.js';
 import { AuthService } from './auth.service.js';
 import { AnyRole, Public, type AuthedRequest } from './decorators.js';
 
@@ -9,6 +11,7 @@ export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
   @Public()
+  @Throttle(LOGIN_THROTTLE)
   @Post('login')
   @HttpCode(200)
   login(@Body() body: unknown): Promise<AuthTokens> {
