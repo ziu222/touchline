@@ -1,10 +1,4 @@
-import 'reflect-metadata';
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module.js';
+import { createApp } from './app.js';
 
-async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
-  app.setGlobalPrefix('api/v1', { exclude: ['health'] });
-  await app.listen(process.env.PORT ?? 3000);
-}
-bootstrap();
+const app = await createApp();
+await app.listen(process.env.PORT ?? 3000);
